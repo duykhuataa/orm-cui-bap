@@ -18,9 +18,10 @@ public class _BaseDAO<T> {
     protected String tableName = "";
     protected String strictTableName = "";
 
-    protected boolean isUpdateStatement = false;
     protected String _queryString = "";
     private ArrayList<String> _params = new ArrayList<>();
+
+    protected boolean isUpdateStatement = false;
 
     protected Connection connection;
 
@@ -57,65 +58,179 @@ public class _BaseDAO<T> {
         return this;
     }
 
-    public _BaseDAO where(String col, String op, String val) {
+    public _BaseDAO where(String col, String op, T val) {
         if (col.charAt(0) != '[') {
             col = strictTableName + "." + col;
         }
         _queryString += "WHERE " + col + " " + op + " ?\n";
-        _params.add(val);
+        _params.add(String.valueOf(val));
         return this;
     }
 
-    public _BaseDAO and(String col, String op, String val) {
+    public _BaseDAO and(String col, T val) {
+        return this.and(col, "=", val);
+    }
+
+    public _BaseDAO and(String col, String op, T val) {
+        if (col.charAt(0) != '[') {
+            col = strictTableName + "." + col;
+        }
         _queryString += "AND " + col + " " + op + " ?\n";
-        _params.add(val);
+        _params.add(String.valueOf(val));
         return this;
     }
 
     public _BaseDAO or(String col, String op, String val) {
+        if (col.charAt(0) != '[') {
+            col = strictTableName + "." + col;
+        }
         _queryString += "OR " + col + " " + op + " ?\n";
         _params.add(val);
         return this;
     }
 
-    private String __destTableName;
+    private String __strictDestTableName;
+
+    private _BaseDAO _join(String type, String destTableName) {
+        __strictDestTableName = getStrict(destTableName);
+        _queryString += type + " JOIN " + __strictDestTableName + "\n";
+        return this;
+    }
+
+    public _BaseDAO join(String destTableName) {
+        return this._join("", destTableName);
+    }
+
+    public _BaseDAO leftJoin(String destTableName) {
+        return this._join("LEFT", destTableName);
+    }
 
     public _BaseDAO innerJoin(String destTableName) {
-        __destTableName = getStrict(destTableName);
-        _queryString += "INNER JOIN " + __destTableName + "\n";
-        return this;
+        return this._join("INNER", destTableName);
     }
 
-    public _BaseDAO on(String sameCol) {
-        return on(sameCol, sameCol);
+    public _BaseDAO rightJoin(String destTableName) {
+        return this._join("RIGHT", destTableName);
     }
-    
+
+    public _BaseDAO on(String commonCol) {
+        return on(commonCol, commonCol);
+    }
+
     public _BaseDAO on(String col, String destCol) {
-        _queryString += "ON " + strictTableName + "." + col + " = " + __destTableName + "." + destCol + "\n";
-        __destTableName = "";
+        _queryString += "ON " + strictTableName + "." + col + " = " + __strictDestTableName + "." + destCol + "\n";
+        __strictDestTableName = "";
         return this;
     }
 
-    public _BaseDAO orderBy(String col, String condition) {
-        _queryString += "ORDER BY " + col + " " + condition + "\n";
+    public _BaseDAO orderBy(String col, String order) {
+        if (col.charAt(0) != '[') {
+            col = strictTableName + "." + col;
+        }
+        _queryString += "ORDER BY " + col + " " + order + "\n";
         return this;
     }
 
-    public ArrayList<T> getAll() {
-        return select().exec();
+    public _BaseDAO paginate(int itemsPerPage, int page) {
+        int offset = (page - 1) * itemsPerPage;
+        _queryString += "OFFSET " + offset + " ROWS FETCH NEXT " + itemsPerPage + " ROWS ONLY";
+        return this;
     }
 
     public _BaseDAO update(String col, String val) {
         isUpdateStatement = true;
 
-        _queryString += "UPDATE " + tableName + "\n";
+        _queryString += "UPDATE " + strictTableName + "\n";
         _queryString += "SET " + col + " = ?\n";
 
         _params.add(val);
         return this;
     }
 
-    private T mapResultSetToModel(ResultSet resultSet) {
+    public T getWhere(String col, int val) {
+        return this.getWhere(col, String.valueOf(val));
+    }
+
+    public T getWhere(String col, String val) {
+        ArrayList<T> ret = this.select()
+                .where(col, "=", val)
+                .exec();
+
+        return ret.get(0);
+    }
+
+    public ArrayList<T> getAll() {
+        return select().exec();
+    }
+
+    public void create(T model) {
+        StringBuilder columns = new StringBuilder();
+        StringBuilder placeholders = new StringBuilder();
+
+        Field[] fields = model.getClass().getDeclaredFields();
+
+        for (int i = 0; i < fields.length; i++) {
+            Field field = fields[i];
+            try {
+                field.setAccessible(true);
+                if (i != 0) {
+                    Object value = field.get(model);
+
+                    if (value != null) {
+                        columns.append(field.getName()).append(", ");
+                        placeholders.append("?, ");
+                        _params.add(String.valueOf(value));
+                        System.out.println(value);
+                    }
+                }
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+
+        columns.setLength(columns.length() - 2);
+        placeholders.setLength(placeholders.length() - 2);
+
+        isUpdateStatement = true;
+        _queryString = String.format("INSERT INTO %s (%s) VALUES (%s)", strictTableName, columns, placeholders);
+        this.exec();
+    }
+
+    public void update(T model) {
+        Field[] fields = model.getClass().getDeclaredFields();
+        StringBuilder updateSet = new StringBuilder();
+
+        Field idField = fields[0];
+        idField.setAccessible(true);
+
+        try {
+            Integer id = (Integer) idField.get(model);
+
+            for (Field field : fields) {
+                if (field != idField) {
+                    field.setAccessible(true);
+                    Object value = field.get(model);
+                    if (value != null) {
+                        updateSet.append(field.getName()).append(" = ?, ");
+                        _params.add(String.valueOf(value));
+                    }
+                }
+            }
+
+            updateSet.setLength(updateSet.length() - 2);
+
+            _queryString = String.format("UPDATE %s \nSET %s WHERE %s = ?",
+                    strictTableName, updateSet, fields[0].getName());
+            _params.add(String.valueOf(id));
+            isUpdateStatement = true;
+
+            exec();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private T mapResultSetToModel(ResultSet rs) {
         try {
             T model = __modelClass.newInstance();
             Field[] fields = __modelClass.getDeclaredFields();
@@ -126,17 +241,17 @@ public class _BaseDAO<T> {
 
                 Object value = null;
                 if (fieldType == int.class) {
-                    value = resultSet.getInt(fieldName);
+                    value = rs.getInt(fieldName);
                 } else if (fieldType == String.class) {
-                    value = resultSet.getString(fieldName);
+                    value = rs.getString(fieldName);
                 } else if (fieldType == Float.class) {
-                    value = resultSet.getFloat(fieldName);
+                    value = rs.getFloat(fieldName);
                 } else if (fieldType == boolean.class) {
-                    value = resultSet.getBoolean(fieldName);
+                    value = rs.getBoolean(fieldName);
                 } else if (fieldType == byte.class) {
-                    value = resultSet.getByte(fieldName);
+                    value = rs.getByte(fieldName);
                 } else if (fieldType == Timestamp.class) {
-                    value = resultSet.getTimestamp(fieldName);
+                    value = rs.getTimestamp(fieldName);
                 }
                 field.setAccessible(true);
                 field.set(model, value);
@@ -170,6 +285,10 @@ public class _BaseDAO<T> {
         } catch (SQLException ex) {
             Logger.getLogger(_BaseDAO.class.getName()).log(Level.SEVERE, null, ex);
         }
+
+        this._queryString = "";
+        this.isUpdateStatement = false;
+        this._params = new ArrayList<>();
 
         return resultList;
     }
