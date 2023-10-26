@@ -42,8 +42,6 @@ public class Main {
 //            System.out.println(rs.getInt(10));
 //        }
         qdao.select()
-                .innerJoin("ExamQuestion")
-                    .on("QuestionId")
                 .printCurrentStatement()
                 .printResultSet();
     }

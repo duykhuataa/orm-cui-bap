@@ -23,7 +23,7 @@ public class _BaseDAO<T> {
     protected String _queryString = "";
     private ArrayList<String> _params = new ArrayList<>();
 
-    protected boolean isUpdateStatement = false;
+    protected boolean _isUpdateStatement = false;
 
     protected Connection connection;
 
@@ -168,7 +168,7 @@ public class _BaseDAO<T> {
     }
 
     public _BaseDAO update(String col, String val) {
-        isUpdateStatement = true;
+        _isUpdateStatement = true;
 
         _queryString += "UPDATE " + strictTableName + "\n";
         _queryString += "SET " + col + " = ?\n";
@@ -233,7 +233,7 @@ public class _BaseDAO<T> {
         columns.setLength(columns.length() - 2);
         placeholders.setLength(placeholders.length() - 2);
 
-        isUpdateStatement = true;
+        _isUpdateStatement = true;
         _queryString = String.format("INSERT INTO %s (%s) VALUES (%s)", strictTableName, columns, placeholders);
         this.exec();
     }
@@ -264,7 +264,7 @@ public class _BaseDAO<T> {
             _queryString = String.format("UPDATE %s \nSET %s WHERE %s = ?",
                     strictTableName, updateSet, fields[0].getName());
             _params.add(String.valueOf(id));
-            isUpdateStatement = true;
+            _isUpdateStatement = true;
 
             exec();
         } catch (IllegalAccessException e) {
@@ -337,9 +337,9 @@ public class _BaseDAO<T> {
 
         this._prepStmt();
         try {
-            if (isUpdateStatement) {
+            if (_isUpdateStatement) {
                 _currPreStmt.executeUpdate();
-                this.isUpdateStatement = false;
+                _isUpdateStatement = false;
             } else {
                 ResultSet rs = _currPreStmt.executeQuery();
                 while (rs.next()) {
@@ -381,7 +381,7 @@ public class _BaseDAO<T> {
                 for (int i = 1; i <= columnCount; i++) {
                     String value = rs.getString(i);
                     value = (value == null) ? "<null>" : value;
-                    System.out.print(String.format("%-20s", value)); // Điều chỉnh chiều rộng 20 ký tự cho giá trị
+                    System.out.print(String.format("%-20s", value));
                 }
                 System.out.println();
             }
