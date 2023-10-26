@@ -5,9 +5,11 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.StringJoiner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -46,11 +48,18 @@ public class _BaseDAO<T> {
         this.__modelClass = modelClass;
 
         this.tableName = tableName;
-        this.strictTableName = getStrict(tableName);
+        this.strictTableName = getStrictTableName(tableName);
     }
 
-    private String getStrict(String tName) {
+    private String getStrictTableName(String tName) {
         return '[' + tName + ']';
+    }
+
+    private String getStrictColName(String colName) {
+        if (colName.charAt(0) != '[') {
+            colName = strictTableName + "." + colName;
+        }
+        return colName;
     }
 
     public _BaseDAO select() {
@@ -58,10 +67,33 @@ public class _BaseDAO<T> {
         return this;
     }
 
-    public _BaseDAO where(String col, String op, T val) {
-        if (col.charAt(0) != '[') {
-            col = strictTableName + "." + col;
+    public _BaseDAO select(String... cols) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (String col : cols) {
+            col = getStrictColName(col);
+            joiner.add(col);
         }
+
+        _queryString += "SELECT " + joiner.toString() + "\n";
+        return this;
+    }
+
+    public _BaseDAO from(String... tables) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (String table : tables) {
+            joiner.add(getStrictTableName(table));
+        }
+
+        _queryString += "FROM " + joiner.toString() + "\n";
+        return this;
+    }
+
+    public _BaseDAO where(String col, T val) {
+        return this.where(col, "=", val);
+    }
+
+    public _BaseDAO where(String col, String op, T val) {
+        col = getStrictColName(col);
         _queryString += "WHERE " + col + " " + op + " ?\n";
         _params.add(String.valueOf(val));
         return this;
@@ -72,28 +104,28 @@ public class _BaseDAO<T> {
     }
 
     public _BaseDAO and(String col, String op, T val) {
-        if (col.charAt(0) != '[') {
-            col = strictTableName + "." + col;
-        }
-        _queryString += "AND " + col + " " + op + " ?\n";
+        col = getStrictColName(col);
+        _queryString += "\tAND " + col + " " + op + " ?\n";
         _params.add(String.valueOf(val));
         return this;
     }
 
-    public _BaseDAO or(String col, String op, String val) {
-        if (col.charAt(0) != '[') {
-            col = strictTableName + "." + col;
-        }
-        _queryString += "OR " + col + " " + op + " ?\n";
-        _params.add(val);
+    public _BaseDAO or(String col, T val) {
+        return this.or(col, "=", val);
+    }
+
+    public _BaseDAO or(String col, String op, T val) {
+        col = getStrictColName(col);
+        _queryString += "\tOR " + col + " " + op + " ?\n";
+        _params.add(String.valueOf(val));
         return this;
     }
 
     private String __strictDestTableName;
 
     private _BaseDAO _join(String type, String destTableName) {
-        __strictDestTableName = getStrict(destTableName);
-        _queryString += type + " JOIN " + __strictDestTableName + "\n";
+        __strictDestTableName = getStrictTableName(destTableName);
+        _queryString += "\t" + type + " JOIN " + __strictDestTableName + "\n";
         return this;
     }
 
@@ -118,15 +150,13 @@ public class _BaseDAO<T> {
     }
 
     public _BaseDAO on(String col, String destCol) {
-        _queryString += "ON " + strictTableName + "." + col + " = " + __strictDestTableName + "." + destCol + "\n";
+        _queryString += "\t\tON " + strictTableName + "." + col + " = " + __strictDestTableName + "." + destCol + "\n";
         __strictDestTableName = "";
         return this;
     }
 
     public _BaseDAO orderBy(String col, String order) {
-        if (col.charAt(0) != '[') {
-            col = strictTableName + "." + col;
-        }
+        col = getStrictColName(col);
         _queryString += "ORDER BY " + col + " " + order + "\n";
         return this;
     }
@@ -154,6 +184,18 @@ public class _BaseDAO<T> {
     public T getWhere(String col, String val) {
         ArrayList<T> ret = this.select()
                 .where(col, "=", val)
+                .exec();
+
+        return ret.get(0);
+    }
+
+    public T getWhere(String col, String op, int val) {
+        return this.getWhere(col, op, String.valueOf(val));
+    }
+
+    public T getWhere(String col, String op, String val) {
+        ArrayList<T> ret = this.select()
+                .where(col, op, val)
                 .exec();
 
         return ret.get(0);
@@ -264,19 +306,42 @@ public class _BaseDAO<T> {
         return null;
     }
 
-    public ArrayList<T> exec() {
-        System.out.println("Prepared statement: \n" + _queryString);
-        ArrayList<T> resultList = new ArrayList<>();
+    private PreparedStatement _currPreStmt = null;
 
-        try ( PreparedStatement ps = connection.prepareStatement(_queryString);) {
+    private void _prepStmt() {
+        try {
+            _currPreStmt = connection.prepareStatement(_queryString);
             for (int i = 1; i <= _params.size(); i++) {
-                ps.setString(i, _params.get(i - 1));
+                _currPreStmt.setString(i, _params.get(i - 1));
             }
 
+            _queryString = "";
+            _params = new ArrayList<>();
+        } catch (SQLException ex) {
+            Logger.getLogger(_BaseDAO.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    public _BaseDAO printCurrentStatement() {
+        String _outQueryString = _queryString;
+        for (String param : _params) {
+            _outQueryString = _outQueryString.replaceFirst("\\?", param);
+        }
+        System.out.print("===== BEGIN STATEMENT ===== \n" + _outQueryString);
+        System.out.println("===== END OF STATEMENT =====");
+        return this;
+    }
+
+    public ArrayList<T> exec() {
+        ArrayList<T> resultList = new ArrayList<>();
+
+        this._prepStmt();
+        try {
             if (isUpdateStatement) {
-                ps.executeUpdate();
+                _currPreStmt.executeUpdate();
+                this.isUpdateStatement = false;
             } else {
-                ResultSet rs = ps.executeQuery();
+                ResultSet rs = _currPreStmt.executeQuery();
                 while (rs.next()) {
                     T model = mapResultSetToModel(rs);
                     resultList.add(model);
@@ -286,10 +351,44 @@ public class _BaseDAO<T> {
             Logger.getLogger(_BaseDAO.class.getName()).log(Level.SEVERE, null, ex);
         }
 
-        this._queryString = "";
-        this.isUpdateStatement = false;
-        this._params = new ArrayList<>();
-
         return resultList;
+    }
+
+    public ResultSet execBigQuery() {
+        this._prepStmt();
+        try {
+            return _currPreStmt.executeQuery();
+        } catch (SQLException ex) {
+            Logger.getLogger(_BaseDAO.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return null;
+    }
+
+    public void printResultSet() {
+        try {
+            ResultSet rs = this.execBigQuery();
+            ResultSetMetaData rsmd = rs.getMetaData();
+            int columnCount = rsmd.getColumnCount();
+
+            System.out.println("\n===== STATEMENT EXECUTED ===== \n===== BEGIN RESULTSET ====");
+            for (int i = 1; i <= columnCount; i++) {
+                String colName = rsmd.getColumnName(i);
+                System.out.print(String.format("%-20s", colName));
+            }
+            System.out.println();
+
+            while (rs.next()) {
+                for (int i = 1; i <= columnCount; i++) {
+                    String value = rs.getString(i);
+                    value = (value == null) ? "<null>" : value;
+                    System.out.print(String.format("%-20s", value)); // Điều chỉnh chiều rộng 20 ký tự cho giá trị
+                }
+                System.out.println();
+            }
+            System.out.println("===== END OF RESULTSET =====");
+
+        } catch (SQLException ex) {
+            Logger.getLogger(_BaseDAO.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 }

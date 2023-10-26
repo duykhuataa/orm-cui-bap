@@ -1,13 +1,11 @@
 package main;
 
-import model.*;
 import dao.*;
-
-import java.util.ArrayList;
+import java.sql.SQLException;
 
 public class Main {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException {
 //        UserDAO udao = new UserDAO();
 //        
 //        ArrayList<User> _userList = udao.select()
@@ -23,14 +21,30 @@ public class Main {
 //        udao.create(u);
 
         QuestionDAO qdao = new QuestionDAO();
-        
+
 //        Question q = new Question();
-//        q.setQuestionText("1 cộng 1 bằng?");
+//        q.setQuestionText("1h 0 9");
 //        q.setCourseId(1);
 //
 //        qdao.create(q);
-
-        Question q = qdao.getWhere("QuestionId", 232);
-        System.out.println(q);
+//        Question q = qdao.getWhere("QuestionText", "LIKE", "%12vr%");
+//        System.out.println(q);
+//        ResultSet rs = qdao.select()
+//                .innerJoin("ExamQuestion")
+//                .on("QuestionId")
+//                .innerJoin("QuestionAnswer")
+//                .on("QuestionId")
+//                .where("QuestionId", "215")
+//                .printCurrentStatement()
+//                .execBigQuery();
+//
+//        while (rs.next()) {
+//            System.out.println(rs.getInt(10));
+//        }
+        qdao.select()
+                .innerJoin("ExamQuestion")
+                    .on("QuestionId")
+                .printCurrentStatement()
+                .printResultSet();
     }
 }
